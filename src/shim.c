@@ -10,6 +10,12 @@
  * Env: TURNIP_SHIM_REAL  path to the real ICD .so (default: Termux libvulkan_freedreno.so)
  *      TURNIP_SHIM_HIDE  comma-separated extension names to hide (default: display family)
  *      TURNIP_SHIM_DEBUG =1 to log to stderr
+ *      TURNIP_SHIM_SPOOF_CPU_FOR  engine name (VkApplicationInfo.pEngineName, e.g. "Dawn"). For Vulkan
+ *                 instances created by that engine ONLY, report the GPU as a CPU device with
+ *                 SwiftShader's vendor/device IDs (0x1AE0/0xC0DE). Chromium's WebGPU decoder accepts
+ *                 such an adapter unconditionally and presents canvases through its manual
+ *                 readback path, so WebGPU work runs on the real GPU even though Chromium (built
+ *                 with Android defines) can't import external textures from this driver.
  */
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
@@ -29,6 +35,7 @@ static void *g_real;
 static PFN_gpa g_gipa, g_gpdpa;
 static PFN_negotiate g_negotiate;
 static char *g_hide;
+static const char *g_spoof_engine;               /* NULL = off (set from TURNIP_SHIM_SPOOF_CPU_FOR) */
 static int g_debug;
 
 static void logf_(const char *fmt, const char *a) { if (g_debug) fprintf(stderr, "[turnip-shim] "); if (g_debug) fprintf(stderr, fmt, a); }
@@ -39,6 +46,7 @@ static int load_real(void) {
     const char *path = getenv("TURNIP_SHIM_REAL"); if (!path || !*path) path = DEFAULT_REAL;
     const char *hide = getenv("TURNIP_SHIM_HIDE"); if (!hide) hide = DEFAULT_HIDE;
     g_hide = strdup(hide);
+    const char *sp = getenv("TURNIP_SHIM_SPOOF_CPU_FOR"); if (sp && *sp) g_spoof_engine = strdup(sp);
     g_real = dlopen(path, RTLD_NOW | RTLD_LOCAL);
     if (!g_real) { fprintf(stderr, "[turnip-shim] dlopen %s failed: %s\n", path, dlerror()); return 0; }
     g_gipa = (PFN_gpa)dlsym(g_real, "vk_icdGetInstanceProcAddr");
@@ -76,6 +84,66 @@ static VkResult VKAPI_CALL shim_EnumerateInstanceExtensionProperties(const char 
     return w < kept ? VK_INCOMPLETE : VK_SUCCESS;
 }
 
+/* ---- optional per-engine "pretend to be SwiftShader" spoof ---------------------------------- */
+#define MAX_INST 16
+#define MAX_PD 64
+
+static VkInstance g_spoof_inst[MAX_INST];        /* instances created by the spoofed engine */
+static VkPhysicalDevice g_spoof_pd[MAX_PD];      /* physical devices enumerated from them */
+typedef VkResult (VKAPI_PTR *PFN_ci)(const VkInstanceCreateInfo *, const VkAllocationCallbacks *, VkInstance *);
+typedef void (VKAPI_PTR *PFN_di)(VkInstance, const VkAllocationCallbacks *);
+typedef VkResult (VKAPI_PTR *PFN_epd)(VkInstance, uint32_t *, VkPhysicalDevice *);
+typedef void (VKAPI_PTR *PFN_gpdp)(VkPhysicalDevice, VkPhysicalDeviceProperties *);
+typedef void (VKAPI_PTR *PFN_gpdp2)(VkPhysicalDevice, VkPhysicalDeviceProperties2 *);
+static PFN_ci g_real_ci; static PFN_di g_real_di; static PFN_epd g_real_epd; static PFN_gpdp g_real_gpdp; static PFN_gpdp2 g_real_gpdp2, g_real_gpdp2khr;
+
+static int inst_spoofed(VkInstance i){ for(int k=0;k<MAX_INST;k++) if(g_spoof_inst[k]==i) return 1; return 0; }
+static int pd_spoofed(VkPhysicalDevice p){ for(int k=0;k<MAX_PD;k++) if(g_spoof_pd[k]==p) return 1; return 0; }
+static void spoof_props(VkPhysicalDeviceProperties *p){
+    p->vendorID = 0x1AE0; p->deviceID = 0xC0DE; p->deviceType = VK_PHYSICAL_DEVICE_TYPE_CPU;
+    logf_("spoofing %s as SwiftShader/CPU\n", p->deviceName);
+}
+static VkResult VKAPI_CALL shim_CreateInstance(const VkInstanceCreateInfo *ci, const VkAllocationCallbacks *a, VkInstance *out){
+    VkResult r = g_real_ci(ci, a, out);
+    if (r == VK_SUCCESS && g_spoof_engine && ci->pApplicationInfo && ci->pApplicationInfo->pEngineName &&
+        !strcmp(ci->pApplicationInfo->pEngineName, g_spoof_engine)) {
+        for (int k=0;k<MAX_INST;k++) if(!g_spoof_inst[k]){ g_spoof_inst[k]=*out; break; }
+        logf_("instance from engine %s will be spoofed\n", g_spoof_engine);
+    }
+    return r;
+}
+static void VKAPI_CALL shim_DestroyInstance(VkInstance i, const VkAllocationCallbacks *a){
+    for (int k=0;k<MAX_INST;k++) if(g_spoof_inst[k]==i) g_spoof_inst[k]=NULL;
+    g_real_di(i, a);
+}
+static VkResult VKAPI_CALL shim_EnumeratePhysicalDevices(VkInstance i, uint32_t *n, VkPhysicalDevice *pds){
+    VkResult r = g_real_epd(i, n, pds);
+    if ((r == VK_SUCCESS || r == VK_INCOMPLETE) && pds && inst_spoofed(i))
+        for (uint32_t x=0; x<*n; x++) { if (pd_spoofed(pds[x])) continue; for (int k=0;k<MAX_PD;k++) if(!g_spoof_pd[k]){ g_spoof_pd[k]=pds[x]; break; } }
+    return r;
+}
+static void VKAPI_CALL shim_GetPhysicalDeviceProperties(VkPhysicalDevice pd, VkPhysicalDeviceProperties *p){
+    g_real_gpdp(pd, p); if (pd_spoofed(pd)) spoof_props(p);
+}
+static void VKAPI_CALL shim_GetPhysicalDeviceProperties2(VkPhysicalDevice pd, VkPhysicalDeviceProperties2 *p){
+    g_real_gpdp2(pd, p); if (pd_spoofed(pd)) spoof_props(&p->properties);
+}
+static void VKAPI_CALL shim_GetPhysicalDeviceProperties2KHR(VkPhysicalDevice pd, VkPhysicalDeviceProperties2 *p){
+    g_real_gpdp2khr(pd, p); if (pd_spoofed(pd)) spoof_props(&p->properties);
+}
+/* returns a wrapper for the spoof-relevant entry points, caching the real pointer; NULL otherwise */
+static PFN_vkVoidFunction spoof_hook(VkInstance inst, const char *name){
+    if (!g_spoof_engine) return NULL;
+    PFN_vkVoidFunction real = g_gipa(inst, name); if (!real) return NULL;
+    if (!strcmp(name,"vkCreateInstance"))                 { g_real_ci=(PFN_ci)real;        return (PFN_vkVoidFunction)shim_CreateInstance; }
+    if (!strcmp(name,"vkDestroyInstance"))                { g_real_di=(PFN_di)real;        return (PFN_vkVoidFunction)shim_DestroyInstance; }
+    if (!strcmp(name,"vkEnumeratePhysicalDevices"))       { g_real_epd=(PFN_epd)real;      return (PFN_vkVoidFunction)shim_EnumeratePhysicalDevices; }
+    if (!strcmp(name,"vkGetPhysicalDeviceProperties"))    { g_real_gpdp=(PFN_gpdp)real;    return (PFN_vkVoidFunction)shim_GetPhysicalDeviceProperties; }
+    if (!strcmp(name,"vkGetPhysicalDeviceProperties2"))   { g_real_gpdp2=(PFN_gpdp2)real;  return (PFN_vkVoidFunction)shim_GetPhysicalDeviceProperties2; }
+    if (!strcmp(name,"vkGetPhysicalDeviceProperties2KHR")){ g_real_gpdp2khr=(PFN_gpdp2)real; return (PFN_vkVoidFunction)shim_GetPhysicalDeviceProperties2KHR; }
+    return NULL;
+}
+
 VKAPI_ATTR VkResult VKAPI_CALL vk_icdNegotiateLoaderICDInterfaceVersion(uint32_t *v) {
     if (!load_real()) return VK_ERROR_INCOMPATIBLE_DRIVER;
     if (g_negotiate) return g_negotiate(v);
@@ -85,10 +153,13 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(VkInstance in
     if (!load_real() || !name) return NULL;
     if (!strcmp(name, "vkEnumerateInstanceExtensionProperties")) return (PFN_vkVoidFunction)shim_EnumerateInstanceExtensionProperties;
     if (!strcmp(name, "vkGetInstanceProcAddr")) return (PFN_vkVoidFunction)vk_icdGetInstanceProcAddr;
+    { PFN_vkVoidFunction h = spoof_hook(inst, name); if (h) return h; }
     return g_gipa(inst, name);
 }
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetPhysicalDeviceProcAddr(VkInstance inst, const char *name) {
-    if (!load_real() || !g_gpdpa) return NULL; return g_gpdpa(inst, name);
+    if (!load_real() || !g_gpdpa) return NULL;
+    { PFN_vkVoidFunction h = spoof_hook(inst, name); if (h) return h; }
+    return g_gpdpa(inst, name);
 }
 /* legacy exports for very old loader interface versions */
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance i, const char *n) { return vk_icdGetInstanceProcAddr(i, n); }
