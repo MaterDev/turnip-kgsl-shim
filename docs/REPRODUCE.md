@@ -150,7 +150,7 @@ off.
 
 The harness scripts live in `~/.claude/skills/agent-browser/`. They run the `gputest` session
 through `chromium-gpu`, time-box every call, and a watchdog kills the browser if load/CPU run away.
-Start Canvas Lab first (`cd canvas-lab && node server.mjs` → `http://127.0.0.1:4860/`).
+Start Canvas Lab first (`cd thor-canvas-lab && node server.mjs` → `http://127.0.0.1:4860/`).
 
 **a. Adapter + smoke + perf + `chrome://gpu` dump** — `gpu-probe.sh`:
 

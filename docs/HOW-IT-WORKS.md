@@ -242,5 +242,5 @@ flowchart TD
 - Turnip/KGSL bug + upstream draft: `mesa-issue-draft.md`, `test/display-ext-repro.c`
 - Crash diagnosis: `segv-backtrace.md`, `tools/segv-backtrace.c`
 - dlopen blocker: `no-dlopen.md`, `tools/no-dlopen.c`
-- Web-app presenter contract: `canvas-lab/public/gpu.js`, `canvas-lab/pieces/webgpu-gradient/`
+- Web-app presenter contract: `thor-canvas-lab/public/gpu.js`, `thor-canvas-lab/pieces/webgpu-gradient/`
 - Reproduce end to end: `REPRODUCE.md`

@@ -24,7 +24,7 @@ arm64. The bottom screen is a terminal, the top screen is a browser. All the too
 Termux (bionic, no root, ever), and the browser you watch is a **headless Termux Chromium** mirrored
 full-screen through the [Thor Viewer](https://github.com/MaterDev/thor-viewer).
 
-The goal was simple to state: make the WebGPU pieces in the [Canvas Lab](https://github.com/MaterDev/canvas-lab)
+The goal was simple to state: make the WebGPU pieces in the [Canvas Lab](https://github.com/MaterDev/thor-canvas-lab)
 gallery run on the actual GPU, visible in that mirror, without crashing anything. WebGL2 already
 did — hardware-accelerated at 60fps via ANGLE-on-Vulkan. WebGPU did not. It either fell back to a
 software rasterizer or, on one memorable configuration, **crash-looped the GPU process and
@@ -293,7 +293,7 @@ Mesa GitLab (component Turnip), with the minimal repro and two suggested fix dir
 
 This shim is infrastructure; it exists to power two projects that are meant to work together:
 
-- **[Canvas Lab](https://github.com/MaterDev/canvas-lab)** — a gallery of self-contained web-graphics
+- **[Canvas Lab](https://github.com/MaterDev/thor-canvas-lab)** — a gallery of self-contained web-graphics
   pieces (WebGPU / WebGL / Canvas2D / SVG / CSS). Its WebGPU pieces run on the real Adreno *because of*
   this shim, and its `public/gpu.js` is **Layer 4** — the `getGPU()` speed-probe and the
   `createPresenter()` render-offscreen-then-blit path.
