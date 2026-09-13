@@ -28,8 +28,10 @@ if [ "${THOR_SHIM:-0}" = "1" ]; then
 else
   export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/data/data/com.termux/files/usr/share/vulkan/icd.d/freedreno_icd.aarch64.json}"
 fi
-WEBGPU="${THOR_WEBGPU:-1}"
+# WebGPU only when the shim is active (bundled SwiftShader crashes on this device); default off otherwise.
+WEBGPU="${THOR_WEBGPU:-${THOR_SHIM:-0}}"
 HEADED="${THOR_HEADED:-0}"
+if [ "$WEBGPU" = "1" ] && [ "${THOR_SHIM:-0}" != "1" ] && [ -z "${THOR_ALLOW_UNSAFE_WEBGPU:-}" ]; then WEBGPU=0; fi  # never enable Chromium's crashy SwiftShader WebGPU
 FEATS="${THOR_FEATS:-VulkanFromANGLE,DefaultANGLEVulkan}"
 [ "$WEBGPU" = "1" ] && FEATS="$FEATS,WebGPU"
 
