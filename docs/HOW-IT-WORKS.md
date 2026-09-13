@@ -126,7 +126,7 @@ sets this). For physical devices enumerated **from those instances only**,
 to SwiftShader's (`0x1AE0`/`0xC0DE`) and `deviceType` to CPU (`spoof_props` in `src/shim.c`).
 Every other caller — ANGLE, `vulkaninfo`, wgpu-native, anything not naming its engine "Dawn" —
 sees the real, unmodified Turnip identity, so WebGL2 is untouched. Verify the selectivity with
-`test/spoof-check.c` (engine `Dawn` reports vendor `0x1ae0` type `1`/CPU; engine `ANGLE` reports
+`test/spoof-check.c` (engine `Dawn` reports vendor `0x1ae0`, deviceType CPU (enum 4); engine `ANGLE` reports
 the real IDs).
 
 **Evidence.** With the spoof active, `chrome://gpu` reports "WebGPU interop: Hardware accelerated"

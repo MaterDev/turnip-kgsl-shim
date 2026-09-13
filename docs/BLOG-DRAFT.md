@@ -142,7 +142,7 @@ screencasts perfectly. `createPresenter()` in the app hides all of that behind `
 - A 4x4 render+readback smoke test returns the exact expected pixel; a 20x Mandelbrot at 1024x1024
   runs in **76 ms** (~265 fps-equivalent — software would be single digits).
 - Canvas presentation: **~140 fps in a raw render+readback loop at 768x432**, **60 fps fullscreen at 1280x633**.
-- A 6-round WebGL↔WebGPU soak: **0 GPU crashes**, battery holding at 38.0 °C.
+- A multi-round WebGL↔WebGPU soak: **0 GPU crashes**, battery holding at 38.0 °C.
 
 Three isolated, reversible runtime layers — an ICD shim, a device-identity spoof, and a blocked
 `dlopen` — plus a readback presenter in the app. No patched Chromium, no patched Mesa, no root.
