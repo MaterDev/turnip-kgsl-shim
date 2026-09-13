@@ -1,0 +1,76 @@
+#!/bin/sh
+# Termux Chromium on hardware Vulkan (Turnip / Adreno 740).
+# WebGL2 via ANGLE-on-Vulkan (--use-angle=vulkan) is proven at 60fps and stable.
+# WebGPU (Dawn) needs GPU compositing, which headless disables -> Dawn hands the page the
+# SwiftShader adapter. THOR_HEADED=1 strips agent-browser's --headless/--ozone-platform=headless
+# and runs on the X display in $DISPLAY (start Xvfb first) so compositing is on and Dawn can
+# expose the Turnip adapter.
+#
+# agent-browser passes its own args in "$@": a 2nd --enable-features (Chromium honors only the
+# last, so we merge) and --enable-unsafe-swiftshader (a software fallback for Dawn, so we drop it).
+#
+# NEVER pair the `Vulkan` base feature with the default surface under --ozone-platform=headless:
+# it crash-loops the GPU process and pegs the device (2026-09-14). Use --disable-vulkan-surface.
+#
+# Env: THOR_SHIM (1 = shim ICD + Dawn spoof), THOR_FEATS (features), THOR_WEBGPU (1 default), THOR_HEADED (1 = X display), THOR_EXTRA
+#      (raw flags), THOR_GPULOG (path for GPU-process logs)
+# Persistent settings for the user's viewer live in ~/.config/thor-gpu/env (THOR_SHIM=1 etc.), applied
+# first and exported so they reach Chrome. Explicit env vars still win. Delete the file to go back to
+# the plain known-good config.
+if [ -f "$HOME/.config/thor-gpu/env" ]; then
+  set -a; . "$HOME/.config/thor-gpu/env"; set +a
+fi
+# THOR_SHIM=1: route Vulkan through the turnip-kgsl-shim ICD and present Turnip to Dawn as "SwiftShader"
+# so Chromium's WebGPU decoder accepts it (see /code/projects/turnip-kgsl-shim). Off = plain Turnip.
+if [ "${THOR_SHIM:-0}" = "1" ]; then
+  export VK_ICD_FILENAMES="/home/key/.local/share/turnip-kgsl-shim/turnip_shim_icd.json"
+  export TURNIP_SHIM_SPOOF_CPU_FOR="${TURNIP_SHIM_SPOOF_CPU_FOR:-Dawn}"
+else
+  export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/data/data/com.termux/files/usr/share/vulkan/icd.d/freedreno_icd.aarch64.json}"
+fi
+WEBGPU="${THOR_WEBGPU:-1}"
+HEADED="${THOR_HEADED:-0}"
+FEATS="${THOR_FEATS:-VulkanFromANGLE,DefaultANGLEVulkan}"
+[ "$WEBGPU" = "1" ] && FEATS="$FEATS,WebGPU"
+
+n=$#
+for a in "$@"; do
+  case "$a" in
+    --enable-features=*)          FEATS="$FEATS,${a#--enable-features=}" ;;
+    --enable-unsafe-swiftshader)  ;;
+    --headless|--headless=*)       [ "$HEADED" = "1" ] || set -- "$@" "$a" ;;
+    --ozone-platform=headless)    [ "$HEADED" = "1" ] || set -- "$@" "$a" ;;
+    *)                            set -- "$@" "$a" ;;
+  esac
+done
+shift $n
+
+# THOR_PRELOAD: LD_PRELOAD (bionic .so) for the chrome binary only — the launcher script calls glibc tools
+# that would choke on it, so in that case exec the binary directly with the launcher's plugin flag.
+T=/data/data/com.termux/files/usr
+if [ -n "${THOR_PRELOAD:-}" ]; then
+  CHROME="/usr/bin/env LD_PRELOAD=$THOR_PRELOAD $T/lib/chromium/chrome --extra-plugin-dir=$T/lib/nsbrowser/plugins"
+else
+  CHROME="$T/bin/chromium-browser"
+fi
+PLATFORM=""
+[ "$HEADED" = "1" ] && PLATFORM="--ozone-platform=x11"
+LOGARGS=""
+[ -n "$THOR_GPULOG" ] && LOGARGS="--enable-logging=stderr --v=1"
+
+if [ "$WEBGPU" = "1" ]; then
+  exec $CHROME \
+    --no-sandbox --ignore-gpu-blocklist $PLATFORM \
+    --use-angle=vulkan \
+    --enable-unsafe-webgpu --enable-webgpu-developer-features \
+    --enable-dawn-features=allow_unsafe_apis,disable_adapter_blocklist \
+    --disable-dawn-features=disallow_unsafe_apis \
+    --use-webgpu-adapter=default \
+    $LOGARGS ${THOR_EXTRA:-} "$@" "--enable-features=$FEATS" 2>>"${THOR_GPULOG:-/dev/null}"
+else
+  exec $CHROME \
+    --no-sandbox --ignore-gpu-blocklist $PLATFORM \
+    --use-angle=vulkan \
+    --disable-blink-features=WebGPU \
+    $LOGARGS ${THOR_EXTRA:-} "$@" "--enable-features=$FEATS" 2>>"${THOR_GPULOG:-/dev/null}"
+fi
