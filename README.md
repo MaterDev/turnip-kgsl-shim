@@ -1,8 +1,8 @@
 # turnip-kgsl-shim
 
 A pass-through Vulkan ICD (Installable Client Driver) for Termux on Android/bionic that works
-around a Mesa Turnip bug on KGSL-only devices, plus an optional, experimental mode for getting
-Chromium's WebGPU decoder to accept the real GPU.
+around a Mesa Turnip bug on KGSL-only devices, plus a mode that lets
+Chromium's WebGPU decoder run on the real GPU (see docs/HOW-IT-WORKS.md).
 
 ## The bug
 
@@ -128,18 +128,23 @@ sees the real, unmodified Turnip identity. Verify with `test/spoof-check.c`.
 - It relies on matching Dawn's current behavior of setting `pEngineName == "Dawn"`, and on
   Chromium's decoder continuing to special-case exactly those SwiftShader IDs — both are
   implementation details that can change across Chromium/Dawn versions.
-- It does not by itself make WebGPU work end-to-end. As of this writing, Chromium's *bundled*
-  SwiftShader (`libvk_swiftshader.so`) is also registered as a Vulkan ICD and also looks like
-  "SwiftShader" to Dawn's ICD ordering (`{ICD::SwiftShader, ICD::None}`), so Dawn may pick the
-  real bundled SwiftShader instead of the spoofed Turnip and crash (see
-  `docs/segv-backtrace.md`), or may pick the spoofed Turnip — this needs the bundled SwiftShader
-  ICD to be excluded/removed so the spoofed Turnip is the only "SwiftShader" Dawn can see.
+- On its own it is not enough: Chromium's *bundled* SwiftShader (`libvk_swiftshader.so`) is also
+  registered as a Vulkan ICD and also looks like "SwiftShader" to Dawn's ICD ordering
+  (`{ICD::SwiftShader, ICD::None}`), and on this device that bundled SwiftShader **crashes** the GPU
+  process when a WebGPU device is created on it. So the spoof is paired with an `LD_PRELOAD` helper
+  (`tools/no-dlopen.c`) that blocks Chromium from loading `libvk_swiftshader.so`, leaving the
+  spoofed Turnip as the only "SwiftShader" Dawn can find.
 - It's a device-identity spoof aimed at one consumer (Chromium/Dawn); it isn't a general-purpose
   Vulkan feature and could confuse any other app that happens to name its engine "Dawn".
 
-Treat it as a stepping stone for the WebGPU-in-Chromium investigation, not something to depend on
-for anything else. See `WEBGPU-BRIEF.md`-style investigation notes for the current status of that
-effort (kept outside this repo).
+**This is now working end to end** on the AYN Thor (Adreno 740, Termux Chromium 149): WebGPU pieces
+render on the real GPU at a steady 60fps inside the viewer. The full chain — this shim, the
+`no-dlopen` preload, the `chromium-gpu` wrapper (`tools/chromium-gpu`), and the app-side
+render-to-2D-canvas presentation trick — is documented in **[docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md)**,
+reproduced step by step in **[docs/REPRODUCE.md](docs/REPRODUCE.md)**, and narrated in
+**[docs/BLOG-DRAFT.md](docs/BLOG-DRAFT.md)**. It remains a hack that depends on Chromium/Dawn internals:
+a future Chromium update can break it, in which case remove the wrapper config to return to the plain
+WebGL-only setup.
 
 ## Limitations
 

@@ -37,9 +37,9 @@ With the four layers below active (env `~/.config/thor-gpu/env`, wrapper `~/.loc
   (~265 fps-equivalent) — a software rasterizer on this device is <5 fps-equivalent.
 - Adapter reports `maxTextureDimension2D = 16384` and the `shader-f16` feature — hardware limits,
   not SwiftShader's.
-- Canvas presentation through the readback path: **~140 fps at 832x468**, **60 fps fullscreen at
+- Canvas presentation through the readback path: **~140 fps in a raw render+readback loop at 768x432**, **60 fps fullscreen at
   1280x633**.
-- A 6-round soak switching WebGL ↔ WebGPU pieces: **0 GPU-process crashes**, battery 38.0 °C.
+- Soak tests switching pieces (10 rounds WebGPU↔WebGPU, 8 rounds WebGL↔WebGPU): **0 GPU-process crashes**, no fallbacks, battery 38–39 °C throughout.
 
 ## Why it is four layers
 
@@ -201,7 +201,7 @@ Because the adapter's reported name cannot be trusted (it says "swiftshader" by 
 finishes in a few ms, a CPU rasterizer takes seconds; if the probe exceeds 400 ms it throws and
 the piece falls back to an "open in real Chrome" card rather than freezing the device.
 
-**Measured cost.** Readback presentation runs ~140 fps at 832x468 and 60 fps fullscreen at
+**Measured cost.** Readback presentation runs ~140 fps in a raw render+readback loop at 768x432 and 60 fps fullscreen at
 1280x633 — comfortably above the viewer's frame budget. The readback is the price of not having
 compositor interop; it scales with resolution.
 

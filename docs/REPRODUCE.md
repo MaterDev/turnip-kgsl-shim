@@ -93,8 +93,8 @@ VK_ICD_FILENAMES=$HOME/.local/share/turnip-kgsl-shim/turnip_shim_icd.json /tmp/w
 $PREFIX/bin/clang -O2 test/spoof-check.c -lvulkan -o /tmp/spoof
 VK_ICD_FILENAMES=$HOME/.local/share/turnip-kgsl-shim/turnip_shim_icd.json \
   TURNIP_SHIM_SPOOF_CPU_FOR=Dawn /tmp/spoof
-# engine=Dawn   -> vendor=0x1ae0 device=0xc0de type=1 (CPU)   <- spoofed
-# engine=ANGLE  -> real Turnip vendor/device, type=1? no: real IDs, unchanged
+# engine=Dawn   -> vendor=0x1ae0 device=0xc0de type=4 (CPU)          <- spoofed
+# engine=ANGLE  -> real Turnip vendor/device, type=1 (INTEGRATED_GPU) <- unchanged
 ```
 
 Only instances whose `pEngineName == "Dawn"` are disguised; everything else (ANGLE/WebGL,
